@@ -16,7 +16,7 @@ use windows::{core::PCWSTR, Win32::System::LibraryLoader::GetModuleHandleW};
 pub mod find;
 
 /// Assigns a type a name that can be used for Dantelion2 singleton reflection.
-/// 
+///
 /// The default implementation trims the type name down to its base, but it
 /// can also be overriden.
 pub trait FromSingleton {
@@ -38,7 +38,7 @@ pub trait FromSingleton {
 
 /// Returns a copy of the singleton map for the process, where
 /// keys are singleton names and values are pointers to the static singleton pointers.
-/// 
+///
 /// This function is safe, but may not contain all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
 pub fn map() -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
@@ -78,12 +78,15 @@ pub fn map() -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
 /// Returns a pointer to a singleton instance using
 /// Dantelion2 reflection. May return [`None`] if the singleton
 /// was not found.
-/// 
+///
 /// This function is safe, but it may not find all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
-/// 
+///
 /// Ensure the return value is convertible to a reference before dereferencing it.
-pub fn address_of<T: FromSingleton>() -> Option<NonNull<T>> {
+pub fn address_of<T>() -> Option<NonNull<T>>
+where
+    T: FromSingleton + Sized,
+{
     let static_ptr = static_of::<T>()?;
     unsafe { NonNull::new(static_ptr.read()) }
 }
@@ -91,12 +94,15 @@ pub fn address_of<T: FromSingleton>() -> Option<NonNull<T>> {
 /// Returns a pointer to the pointer to a singleton instance using
 /// Dantelion2 reflection. May return [`None`] if the singleton
 /// was not found.
-/// 
+///
 /// This function is safe, but it may not find all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
-/// 
+///
 /// Ensure the return value is convertible to a reference before dereferencing it.
-pub fn static_of<T: FromSingleton>() -> Option<NonNull<*mut T>> {
+pub fn static_of<T>() -> Option<NonNull<*mut T>>
+where
+    T: FromSingleton + Sized,
+{
     let name = T::name();
 
     let derived_map = derived_singletons();
