@@ -21,6 +21,7 @@ pub mod find;
 /// can also be overriden.
 pub trait FromSingleton {
     /// Returns the name to look up the singleton by.
+    #[inline]
     fn name() -> Cow<'static, str> {
         let type_name = any::type_name::<Self>();
 
