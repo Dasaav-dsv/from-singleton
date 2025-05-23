@@ -5,11 +5,18 @@ use std::{
     collections::HashMap,
     ffi::{c_char, CStr},
     mem,
+    ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 
 use pelite::pe::Pe;
 use regex::bytes::{Captures, Match, Regex};
+
+/// A complete `FD4Singleton` mapping with names.
+/// 
+/// Implements [`Deref`] to the underlying [`HashMap`].
+#[derive(Clone, Debug)]
+pub struct FD4SingletonMap(HashMap<Cow<'static, str>, NonNull<*mut u8>>);
 
 /// "Unfinished" `FD4Singleton` mapping without names.
 ///
@@ -17,6 +24,7 @@ use regex::bytes::{Captures, Match, Regex};
 /// primitives to the instance names, which must be initialized.
 ///
 /// For that reason, [`FD4SingletonPartialResult::finish`] is unsafe.
+#[derive(Clone, Debug)]
 pub struct FD4SingletonPartialResult {
     map: HashMap<*mut u8, NonNull<*mut u8>>,
     get_name: Option<unsafe extern "C" fn(*const u8) -> *const c_char>,
@@ -26,7 +34,7 @@ pub struct FD4SingletonPartialResult {
 ///
 /// # Panics
 /// If `pe` does not contain valid ".text" and ".data" sections.
-pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
+pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonMap {
     let re = Regex::new(RE_DER_SINGLETON).unwrap();
     let subre = Regex::new(SUBRE_DER_SINGLETON).unwrap();
 
@@ -86,7 +94,7 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> HashMap<Cow<'static, str>, No
         vk_map.insert(index, (addr, name));
     }
 
-    vk_map
+    let map = vk_map
         .into_iter()
         .filter_map(|(v, k)| {
             let addr = NonNull::new(image_base.wrapping_add(v as _) as *mut *mut u8)?;
@@ -101,7 +109,9 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> HashMap<Cow<'static, str>, No
                 None
             }
         })
-        .collect()
+        .collect();
+
+    FD4SingletonMap(map)
 }
 
 /// Build a partial result of a map of all `FD4Singleton` names and addresses.
@@ -221,22 +231,33 @@ fn verify_registers(mov: &[u8], test: &[u8]) -> bool {
     mov_rexw == test_rexw && mov_reg == test_reg
 }
 
+impl FD4SingletonMap {
+    /// Check whether all `FD4Singleton` instances are uninitialized.
+    ///
+    /// It is a good sign [`FD4SingletonPartialResult::finish`] is not safe to be called.
+    pub fn all_null(&self) -> bool {
+        self.0.iter().all(|(_, p)| unsafe { p.read().is_null() })
+    }
+}
+
 impl FD4SingletonPartialResult {
     /// Finish mapping `FD4Singleton` instances by retrieving their names.
     ///
     /// # Safety
     /// The process must have finished initializing Dantelion2 reflection data.
-    pub unsafe fn finish(self) -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
+    pub unsafe fn finish(self) -> FD4SingletonMap {
         // SAFETY: preconditions should be met for `self.get_name`,
         // returned names are wrapped in `NonNull` and are valid C strings.
-        self.map
-            .into_iter()
-            .filter_map(|(r, p)| unsafe {
-                let name = NonNull::new((self.get_name?)(r) as _)?;
+        FD4SingletonMap(
+            self.map
+                .into_iter()
+                .filter_map(|(r, p)| unsafe {
+                    let name = NonNull::new((self.get_name?)(r) as _)?;
 
-                Some((CStr::from_ptr(name.as_ptr()).to_string_lossy(), p))
-            })
-            .collect()
+                    Some((CStr::from_ptr(name.as_ptr()).to_string_lossy(), p))
+                })
+                .collect(),
+        )
     }
 
     /// Check whether all `FD4Singleton` instances are uninitialized.
@@ -246,6 +267,28 @@ impl FD4SingletonPartialResult {
         self.map.iter().all(|(_, p)| unsafe { p.read().is_null() })
     }
 }
+
+impl Deref for FD4SingletonMap {
+    type Target = HashMap<Cow<'static, str>, NonNull<*mut u8>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FD4SingletonMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+unsafe impl Send for FD4SingletonMap {}
+
+unsafe impl Sync for FD4SingletonMap {}
+
+unsafe impl Send for FD4SingletonPartialResult {}
+
+unsafe impl Sync for FD4SingletonPartialResult {}
 
 const RE_DER_SINGLETON: &str = r"(?sx-u)
     [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})

@@ -5,12 +5,11 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     mem,
-    num::NonZeroUsize,
-    ops::Deref,
     ptr::NonNull,
     sync::{LazyLock, RwLock},
 };
 
+use find::{FD4SingletonMap, FD4SingletonPartialResult};
 use windows::{core::PCWSTR, Win32::System::LibraryLoader::GetModuleHandleW};
 
 pub mod find;
@@ -42,37 +41,34 @@ pub trait FromSingleton {
 /// This function is safe, but may not contain all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
 pub fn map() -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
-    let mut new_map = derived_singletons().clone();
-
-    if let Ok(map) = FD4_SINGLETON_MAP.read() {
+    if let Ok(map) = ALL_SINGLETON_MAP.read() {
         if let Some(map) = &*map {
-            new_map.extend(
-                map.iter()
-                    .map(|(k, v)| unsafe { (k.clone(), mem::transmute(*v)) }),
-            );
-
-            return new_map;
+            return Clone::clone(&*map);
         }
     }
 
-    unsafe {
-        let mut map = match FD4_SINGLETON_MAP.write() {
-            Ok(value) => value,
-            Err(value) => value.into_inner(),
-        };
+    let derived = &*DERIVED_SINGLETON_MAP;
+    let partial = &*PARTIAL_SINGLETON_MAP;
 
-        let partial = partial_singletons();
+    let mut all_map = match ALL_SINGLETON_MAP.write() {
+        Ok(value) => value,
+        Err(value) => value.into_inner(),
+    };
 
-        if !partial.all_null() || !new_map.iter().all(|(_, p)| p.read().is_null()) {
-            let fd4_map = partial.finish();
+    if !partial.all_null() || !derived.all_null() {
+        // SAFETY: if any singletons are not null initialization has surely happened
+        let mut new_map = unsafe { partial.clone().finish() };
 
-            new_map.extend(fd4_map.iter().map(|(k, v)| (k.clone(), *v)));
+        new_map.extend(derived.iter().map(|(k, v)| (k.clone(), *v)));
 
-            *map = Some(mem::transmute(fd4_map));
-        }
+        let map = Clone::clone(&*new_map);
+
+        *all_map = Some(new_map.clone());
+
+        return map;
     }
 
-    new_map
+    Default::default()
 }
 
 /// Returns a pointer to a singleton instance using
@@ -105,66 +101,51 @@ where
 {
     let name = T::name();
 
-    let derived_map = derived_singletons();
-
-    if let Some(addr) = derived_map.get(&name) {
-        return unsafe { Some(mem::transmute(*addr)) };
-    }
-
-    if let Ok(map) = FD4_SINGLETON_MAP.read() {
+    if let Ok(map) = ALL_SINGLETON_MAP.read() {
         if let Some(map) = &*map {
-            let addr = map.get(&name)?;
+            let found = map.get(&name).cloned();
 
-            return unsafe { Some(mem::transmute(*addr)) };
+            return unsafe { mem::transmute(found) };
         }
     }
 
-    let mut map = match FD4_SINGLETON_MAP.write() {
+    let derived = &*DERIVED_SINGLETON_MAP;
+    let partial = &*PARTIAL_SINGLETON_MAP;
+
+    let mut all_map = match ALL_SINGLETON_MAP.write() {
         Ok(value) => value,
         Err(value) => value.into_inner(),
     };
 
-    let partial = partial_singletons();
+    if !partial.all_null() || !derived.all_null() {
+        // SAFETY: if any singletons are not null initialization has surely happened
+        let mut new_map = unsafe { partial.clone().finish() };
 
-    unsafe {
-        if !partial.all_null() || !derived_map.iter().all(|(_, p)| p.read().is_null()) {
-            let new_map = partial.finish();
+        new_map.extend(derived.iter().map(|(k, v)| (k.clone(), *v)));
 
-            let found = new_map.get(&name).cloned();
+        let found = new_map.get(&name).cloned();
 
-            *map = Some(mem::transmute(new_map));
+        *all_map = Some(new_map);
 
-            if let Some(addr) = found {
-                return Some(mem::transmute(addr));
-            }
-        }
+        return unsafe { mem::transmute(found) };
     }
 
     None
 }
 
-fn derived_singletons() -> &'static HashMap<Cow<'static, str>, NonNull<*mut u8>> {
-    let map: &'static HashMap<Cow<'static, str>, NonZeroUsize> = DERIVED_SINGLETON_MAP.deref();
-    unsafe { mem::transmute(map) }
-}
+static DERIVED_SINGLETON_MAP: LazyLock<FD4SingletonMap> = LazyLock::new(|| unsafe {
+    let image_base = GetModuleHandleW(PCWSTR::null()).expect("GetModuleHandleW failed");
+    let pe = pelite::pe::PeView::module(image_base.0 as _);
+    mem::transmute(find::derived_singletons(pe))
+});
 
-fn partial_singletons() -> find::FD4SingletonPartialResult {
-    unsafe {
-        let image_base = GetModuleHandleW(PCWSTR::null()).expect("GetModuleHandleW failed");
-        let pe = pelite::pe::PeView::module(image_base.0 as _);
-        find::fd4_singletons(pe)
-    }
-}
+static PARTIAL_SINGLETON_MAP: LazyLock<FD4SingletonPartialResult> = LazyLock::new(|| unsafe {
+    let image_base = GetModuleHandleW(PCWSTR::null()).expect("GetModuleHandleW failed");
+    let pe = pelite::pe::PeView::module(image_base.0 as _);
+    find::fd4_singletons(pe)
+});
 
-static FD4_SINGLETON_MAP: RwLock<Option<HashMap<Cow<'static, str>, NonZeroUsize>>> =
-    RwLock::new(None);
-
-static DERIVED_SINGLETON_MAP: LazyLock<HashMap<Cow<'static, str>, NonZeroUsize>> =
-    LazyLock::new(|| unsafe {
-        let image_base = GetModuleHandleW(PCWSTR::null()).expect("GetModuleHandleW failed");
-        let pe = pelite::pe::PeView::module(image_base.0 as _);
-        mem::transmute(find::derived_singletons(pe))
-    });
+static ALL_SINGLETON_MAP: RwLock<Option<FD4SingletonMap>> = RwLock::new(None);
 
 #[cfg(test)]
 mod tests {
