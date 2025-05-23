@@ -63,12 +63,12 @@ pub fn map() -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
 
         let map = Clone::clone(&*new_map);
 
-        *all_map = Some(new_map.clone());
+        *all_map = Some(new_map);
 
         return map;
     }
 
-    Default::default()
+    Clone::clone(&*derived)
 }
 
 /// Returns a pointer to a singleton instance using
