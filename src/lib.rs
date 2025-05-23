@@ -70,6 +70,7 @@ pub fn map() -> &'static HashMap<Cow<'static, str>, NonNull<*mut u8>> {
 /// before Dantelion2 reflection is initialized by the process.
 ///
 /// Ensure the return value is convertible to a reference before dereferencing it.
+#[inline]
 pub fn address_of<T>() -> Option<NonNull<T>>
 where
     T: FromSingleton + Sized,
@@ -88,6 +89,7 @@ where
 /// before Dantelion2 reflection is initialized by the process.
 ///
 /// Ensure the return value is convertible to a reference before dereferencing it.
+#[inline]
 pub fn static_of<T>() -> Option<NonNull<*mut T>>
 where
     T: FromSingleton + Sized,
