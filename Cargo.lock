@@ -19,7 +19,7 @@ checksum = "50eb3a329e19d78c3a3dfa4ec5a51ecb84fa3a20c06edad04be25356018218f9"
 
 [[package]]
 name = "from-singleton"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pelite",
  "regex",
