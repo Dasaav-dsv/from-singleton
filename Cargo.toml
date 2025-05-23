@@ -1,0 +1,34 @@
+[package]
+name = "from-singleton"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dasaav"]
+description = "FromSoftware singleton manipulation library"
+readme = "README.md"
+repository = "https://github.com/Dasaav-dsv/from-singleton"
+license = "MIT OR Apache-2.0"
+
+[dependencies.regex]
+version = "1"
+default-features = false
+features = [
+    "std",
+    "perf",
+]
+
+[dependencies.pelite]
+version = "0.10"
+default-features = false
+features = [
+    "std",
+]
+
+[dependencies.windows]
+version = "0"
+default-features = false
+features = [
+    "Win32_System_LibraryLoader"
+]
+
+[features]
+regex-unicode = ["regex/unicode"]
