@@ -6,17 +6,16 @@ use std::{
     ffi::{c_char, CStr},
     mem,
     ptr::NonNull,
-    sync::LazyLock,
 };
 
 use pelite::pe::Pe;
 use regex::bytes::{Captures, Match, Regex};
 
 /// "Unfinished" `FD4Singleton` mapping without names.
-/// 
+///
 /// Dantelion2 reflection data is needed to finish mapping reflection
 /// primitives to the instance names, which must be initialized.
-/// 
+///
 /// For that reason, [`FD4SingletonPartialResult::finish`] is unsafe.
 pub struct FD4SingletonPartialResult {
     map: HashMap<*mut u8, NonNull<*mut u8>>,
@@ -28,8 +27,8 @@ pub struct FD4SingletonPartialResult {
 /// # Panics
 /// If `pe` does not contain valid ".text" and ".data" sections.
 pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
-    let re = RE_DER_SINGLETON.clone();
-    let subre = SUBRE_DER_SINGLETON.clone();
+    let re = Regex::new(RE_DER_SINGLETON).unwrap();
+    let subre = Regex::new(SUBRE_DER_SINGLETON).unwrap();
 
     if re.static_captures_len() != Some(4) || subre.static_captures_len() != Some(2) {
         unreachable!("static captures length changed");
@@ -113,8 +112,8 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> HashMap<Cow<'static, str>, No
 /// # Panics
 /// If `pe` does not contain valid ".text" and ".data" sections.
 pub fn fd4_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonPartialResult {
-    let re = RE_FD4_SINGLETON.clone();
-    let subre = SUBRE_FD4_SINGLETON.clone();
+    let re = Regex::new(RE_FD4_SINGLETON).unwrap();
+    let subre = Regex::new(SUBRE_FD4_SINGLETON).unwrap();
 
     if re.static_captures_len() != Some(6) {
         unreachable!("static captures length changed");
@@ -248,106 +247,88 @@ impl FD4SingletonPartialResult {
     }
 }
 
-const RE_DER_SINGLETON: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?sx-u)
-        [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
-        .{0,3}?
-        ([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
-        (?:(?:\x75.)|(?:\x0f\x85.{4}))
-        (.{26}) # load args in R9, R8, RDX and RCX in arbitrary order
-        \xe8.{4}",
-    )
-    .unwrap()
-});
+const RE_DER_SINGLETON: &str = r"(?sx-u)
+    [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
+    .{0,3}?
+    ([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
+    (?:(?:\x75.)|(?:\x0f\x85.{4}))
+    (.{26}) # load args in R9, R8, RDX and RCX in arbitrary order
+    \xe8.{4}";
 
-const RE_FD4_SINGLETON: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?sx-u)
-        [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
-        .{0,3}?
-        ([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
-        (?:(?:\x75.)|(?:\x0f\x85.{4}))
-        \x48\x8d\x0d(.{4})
-        \xe8(.{4})
-        \x90??
-        (.{22}) # load args in R9, R8, RDX and RCX in arbitrary order
-        \xe8.{4}",
-    )
-    .unwrap()
-});
+const RE_FD4_SINGLETON: &str = r"(?sx-u)
+    [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
+    .{0,3}?
+    ([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
+    (?:(?:\x75.)|(?:\x0f\x85.{4}))
+    \x48\x8d\x0d(.{4})
+    \xe8(.{4})
+    \x90??
+    (.{22}) # load args in R9, R8, RDX and RCX in arbitrary order
+    \xe8.{4}";
 
-const SUBRE_DER_SINGLETON: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?sx-u)
-        (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4})   # R9 R8 RDX RCX
-        | (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4}) # R9 R8 RCX RDX
-        | (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # R9 RDX R8 RCX
-        | (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # R9 RDX RCX R8
-        | (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4}) # R9 RCX R8 RDX
-        | (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4}) # R9 RCX RDX R8
-        | (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4}) # R8 R9 RDX RCX
-        | (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4}) # R8 R9 RCX RDX
-        | (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4}) # R8 RDX R9 RCX
-        | (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4})) # R8 RDX RCX R9
-        | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4}) # R8 RCX R9 RDX
-        | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4})) # R8 RCX RDX R9
-        | (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # RDX R9 R8 RCX
-        | (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # RDX R9 RCX R8
-        | (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4}) # RDX R8 R9 RCX
-        | (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4})) # RDX R8 RCX R9
-        | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4}) # RDX RCX R9 R8
-        | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4})) # RDX RCX R8 R9
-        | (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4}) # RCX R9 R8 RDX
-        | (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4}) # RCX R9 RDX R8
-        | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4}) # RCX R8 R9 RDX
-        | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4})) # RCX R8 RDX R9
-        | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4}) # RCX RDX R9 R8
-        | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4})) # RCX RDX R8 R9",
-    )
-    .unwrap()
-});
+const SUBRE_DER_SINGLETON: &str = r"(?sx-u)
+    (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4})   # R9 R8 RDX RCX
+    | (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4}) # R9 R8 RCX RDX
+    | (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # R9 RDX R8 RCX
+    | (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # R9 RDX RCX R8
+    | (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4}) # R9 RCX R8 RDX
+    | (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4}) # R9 RCX RDX R8
+    | (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4}) # R8 R9 RDX RCX
+    | (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4}) # R8 R9 RCX RDX
+    | (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4}) # R8 RDX R9 RCX
+    | (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4})) # R8 RDX RCX R9
+    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4}) # R8 RCX R9 RDX
+    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4})) # R8 RCX RDX R9
+    | (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # RDX R9 R8 RCX
+    | (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # RDX R9 RCX R8
+    | (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4}) # RDX R8 R9 RCX
+    | (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4})) # RDX R8 RCX R9
+    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4}) # RDX RCX R9 R8
+    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4})) # RDX RCX R8 R9
+    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4}) # RCX R9 R8 RDX
+    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4}) # RCX R9 RDX R8
+    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4}) # RCX R8 R9 RDX
+    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4})) # RCX R8 RDX R9
+    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4}) # RCX RDX R9 R8
+    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4})) # RCX RDX R8 R9";
 
-const SUBRE_FD4_SINGLETON: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?sx-u)
-        (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4})   # R9 R8 RDX RCX
-        | (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4}) # R9 R8 RCX RDX
-        | (?:\x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # R9 RDX R8 RCX
-        | (?:\x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # R9 RDX RCX R8
-        | (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4}) # R9 RCX R8 RDX
-        | (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4}) # R9 RCX RDX R8
-        | (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4}) # R8 R9 RDX RCX
-        | (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4}) # R8 R9 RCX RDX
-        | (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4}) # R8 RDX R9 RCX
-        | (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8) # R8 RDX RCX R9
-        | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4}) # R8 RCX R9 RDX
-        | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8) # R8 RCX RDX R9
-        | (?:\xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # RDX R9 R8 RCX
-        | (?:\xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # RDX R9 RCX R8
-        | (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4}) # RDX R8 R9 RCX
-        | (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8) # RDX R8 RCX R9
-        | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4}) # RDX RCX R9 R8
-        | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8) # RDX RCX R8 R9
-        | (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4}) # RCX R9 R8 RDX
-        | (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4}) # RCX R9 RDX R8
-        | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4}) # RCX R8 R9 RDX
-        | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8) # RCX R8 RDX R9
-        | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4}) # RCX RDX R9 R8
-        | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8) # RCX RDX R8 R9",
-    )
-    .unwrap()
-});
+const SUBRE_FD4_SINGLETON: &str = r"(?sx-u)
+    (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4})   # R9 R8 RDX RCX
+    | (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4}) # R9 R8 RCX RDX
+    | (?:\x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # R9 RDX R8 RCX
+    | (?:\x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # R9 RDX RCX R8
+    | (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4}) # R9 RCX R8 RDX
+    | (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4}) # R9 RCX RDX R8
+    | (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4}) # R8 R9 RDX RCX
+    | (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4}) # R8 R9 RCX RDX
+    | (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4}) # R8 RDX R9 RCX
+    | (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8) # R8 RDX RCX R9
+    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4}) # R8 RCX R9 RDX
+    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8) # R8 RCX RDX R9
+    | (?:\xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # RDX R9 R8 RCX
+    | (?:\xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # RDX R9 RCX R8
+    | (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4}) # RDX R8 R9 RCX
+    | (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8) # RDX R8 RCX R9
+    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4}) # RDX RCX R9 R8
+    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8) # RDX RCX R8 R9
+    | (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4}) # RCX R9 R8 RDX
+    | (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4}) # RCX R9 RDX R8
+    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4}) # RCX R8 R9 RDX
+    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8) # RCX R8 RDX R9
+    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4}) # RCX RDX R9 R8
+    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8) # RCX RDX R8 R9";
 
 #[cfg(test)]
 mod tests {
+    use regex::bytes::Regex;
+
     use super::{RE_DER_SINGLETON, RE_FD4_SINGLETON, SUBRE_DER_SINGLETON, SUBRE_FD4_SINGLETON};
 
     #[test]
     fn regex_compiles() {
-        let _ = RE_DER_SINGLETON.clone();
-        let _ = RE_FD4_SINGLETON.clone();
-        let _ = SUBRE_DER_SINGLETON.clone();
-        let _ = SUBRE_FD4_SINGLETON.clone();
+        let _ = Regex::new(RE_DER_SINGLETON).unwrap();
+        let _ = Regex::new(RE_FD4_SINGLETON).unwrap();
+        let _ = Regex::new(SUBRE_DER_SINGLETON).unwrap();
+        let _ = Regex::new(SUBRE_FD4_SINGLETON).unwrap();
     }
 }
