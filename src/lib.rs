@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     mem,
     ptr::NonNull,
-    sync::{LazyLock, RwLock},
+    sync::{LazyLock, OnceLock},
 };
 
 use find::{FD4SingletonMap, FD4SingletonPartialResult};
@@ -35,40 +35,31 @@ pub trait FromSingleton {
     }
 }
 
-/// Returns a copy of the singleton map for the process, where
+/// Returns a reference to the singleton map for the process, where
 /// keys are singleton names and values are pointers to the static singleton pointers.
 ///
 /// This function is safe, but may not contain all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
-pub fn map() -> HashMap<Cow<'static, str>, NonNull<*mut u8>> {
-    if let Ok(map) = ALL_SINGLETON_MAP.read() {
-        if let Some(map) = &*map {
-            return Clone::clone(&*map);
-        }
+pub fn map() -> &'static HashMap<Cow<'static, str>, NonNull<*mut u8>> {
+    if let Some(map) = ALL_SINGLETON_MAP.get() {
+        return map;
     }
 
     let derived = &*DERIVED_SINGLETON_MAP;
     let partial = &*PARTIAL_SINGLETON_MAP;
 
-    let mut all_map = match ALL_SINGLETON_MAP.write() {
-        Ok(value) => value,
-        Err(value) => value.into_inner(),
-    };
-
     if !partial.all_null() || !derived.all_null() {
-        // SAFETY: if any singletons are not null initialization has surely happened
-        let mut new_map = unsafe { partial.clone().finish() };
+        ALL_SINGLETON_MAP.get_or_init(|| {
+            // SAFETY: if any singletons are not null initialization has surely happened
+            let mut new_map = unsafe { partial.clone().finish() };
 
-        new_map.extend(derived.iter().map(|(k, v)| (k.clone(), *v)));
+            new_map.extend(derived.iter().map(|(k, v)| (k.clone(), *v)));
 
-        let map = Clone::clone(&*new_map);
-
-        *all_map = Some(new_map);
-
-        return map;
+            new_map
+        })
+    } else {
+        &*derived
     }
-
-    Clone::clone(&*derived)
 }
 
 /// Returns a pointer to a singleton instance using
@@ -84,6 +75,8 @@ where
     T: FromSingleton + Sized,
 {
     let static_ptr = static_of::<T>()?;
+
+    // SAFETY: pointer is valid for the read as insured by `static_of`.
     unsafe { NonNull::new(static_ptr.read()) }
 }
 
@@ -99,38 +92,10 @@ pub fn static_of<T>() -> Option<NonNull<*mut T>>
 where
     T: FromSingleton + Sized,
 {
-    let name = T::name();
+    let name = <T as FromSingleton>::name();
 
-    if let Ok(map) = ALL_SINGLETON_MAP.read() {
-        if let Some(map) = &*map {
-            let found = map.get(&name).cloned();
-
-            return unsafe { mem::transmute(found) };
-        }
-    }
-
-    let derived = &*DERIVED_SINGLETON_MAP;
-    let partial = &*PARTIAL_SINGLETON_MAP;
-
-    let mut all_map = match ALL_SINGLETON_MAP.write() {
-        Ok(value) => value,
-        Err(value) => value.into_inner(),
-    };
-
-    if !partial.all_null() || !derived.all_null() {
-        // SAFETY: if any singletons are not null initialization has surely happened
-        let mut new_map = unsafe { partial.clone().finish() };
-
-        new_map.extend(derived.iter().map(|(k, v)| (k.clone(), *v)));
-
-        let found = new_map.get(&name).cloned();
-
-        *all_map = Some(new_map);
-
-        return unsafe { mem::transmute(found) };
-    }
-
-    None
+    // SAFETY: transmute between NonNull pointers.
+    unsafe { mem::transmute(map().get(&name).cloned()) }
 }
 
 static DERIVED_SINGLETON_MAP: LazyLock<FD4SingletonMap> = LazyLock::new(|| unsafe {
@@ -145,7 +110,7 @@ static PARTIAL_SINGLETON_MAP: LazyLock<FD4SingletonPartialResult> = LazyLock::ne
     find::fd4_singletons(pe)
 });
 
-static ALL_SINGLETON_MAP: RwLock<Option<FD4SingletonMap>> = RwLock::new(None);
+static ALL_SINGLETON_MAP: OnceLock<FD4SingletonMap> = OnceLock::new();
 
 #[cfg(test)]
 mod tests {
