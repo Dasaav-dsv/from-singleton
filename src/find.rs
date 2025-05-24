@@ -1,7 +1,6 @@
 //! `FD4DerivedSingleton` and `FD4Singleton` search routines.
 
 use std::{
-    borrow::Cow,
     collections::HashMap,
     ffi::{c_char, CStr},
     mem,
@@ -13,10 +12,10 @@ use pelite::pe::Pe;
 use regex::bytes::{Captures, Match, Regex};
 
 /// A complete `FD4Singleton` mapping with names.
-/// 
+///
 /// Implements [`Deref`] to the underlying [`HashMap`].
 #[derive(Clone, Debug)]
-pub struct FD4SingletonMap(HashMap<Cow<'static, str>, NonNull<*mut u8>>);
+pub struct FD4SingletonMap(HashMap<String, NonNull<*mut u8>>);
 
 /// "Unfinished" `FD4Singleton` mapping without names.
 ///
@@ -96,8 +95,12 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonMap {
                 let name = usize::wrapping_add(image_base, k as _);
 
                 // SAFETY: using valid C strings wrapped in `NonNull`.
-                NonNull::new(name as _)
-                    .map(|a| unsafe { (CStr::from_ptr(a.as_ptr()).to_string_lossy(), addr) })
+                NonNull::new(name as _).map(|a| unsafe {
+                    (
+                        CStr::from_ptr(a.as_ptr()).to_string_lossy().to_string(),
+                        addr,
+                    )
+                })
             } else {
                 None
             }
@@ -242,7 +245,10 @@ impl FD4SingletonPartialResult {
                 .filter_map(|(r, p)| unsafe {
                     let name = NonNull::new((self.get_name?)(r) as _)?;
 
-                    Some((CStr::from_ptr(name.as_ptr()).to_string_lossy(), p))
+                    Some((
+                        CStr::from_ptr(name.as_ptr()).to_string_lossy().to_string(),
+                        p,
+                    ))
                 })
                 .collect(),
         )
@@ -257,7 +263,7 @@ impl FD4SingletonPartialResult {
 }
 
 impl Deref for FD4SingletonMap {
-    type Target = HashMap<Cow<'static, str>, NonNull<*mut u8>>;
+    type Target = HashMap<String, NonNull<*mut u8>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

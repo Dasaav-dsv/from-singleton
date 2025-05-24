@@ -40,7 +40,7 @@ pub trait FromSingleton {
 ///
 /// This function is safe, but may not contain all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
-pub fn map() -> &'static HashMap<Cow<'static, str>, NonNull<*mut u8>> {
+pub fn map() -> &'static HashMap<String, NonNull<*mut u8>> {
     if let Some(map) = ALL_SINGLETON_MAP.get() {
         return map;
     }
@@ -97,7 +97,7 @@ where
     let name = <T as FromSingleton>::name();
 
     // SAFETY: transmute between NonNull pointers.
-    unsafe { mem::transmute(map().get(&name).cloned()) }
+    unsafe { mem::transmute(map().get(&*name).cloned()) }
 }
 
 static DERIVED_SINGLETON_MAP: LazyLock<FD4SingletonMap> = LazyLock::new(|| unsafe {
