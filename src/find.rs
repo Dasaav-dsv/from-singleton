@@ -36,9 +36,8 @@ pub struct FD4SingletonPartialResult {
 /// If `pe` does not contain valid ".text" and ".data" sections.
 pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonMap {
     let re = Regex::new(RE_DER_SINGLETON).unwrap();
-    let subre = Regex::new(SUBRE_DER_SINGLETON).unwrap();
 
-    if re.static_captures_len() != Some(4) || subre.static_captures_len() != Some(2) {
+    if re.static_captures_len() != Some(4) {
         unreachable!("static captures length changed");
     }
 
@@ -58,7 +57,7 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonMap {
 
     let image_base = pe.image().as_ptr() as usize;
 
-    for [mov, addr_disp32, test, sub] in re.captures_iter(text).map(extract_captures) {
+    for [mov, addr_disp32, test, name_disp32] in re.captures_iter(text).map(extract_captures) {
         if !verify_registers(mov.as_bytes(), test.as_bytes()) {
             continue;
         }
@@ -77,12 +76,6 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonMap {
         if !data_range.contains(&addr) {
             continue;
         }
-
-        let Some(captures) = subre.captures(sub.as_bytes()) else {
-            continue;
-        };
-
-        let [_, name_disp32] = extract_captures(captures);
 
         let name_bytes = <[u8; 4]>::try_from(name_disp32.as_bytes()).unwrap();
 
@@ -123,9 +116,8 @@ pub fn derived_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonMap {
 /// If `pe` does not contain valid ".text" and ".data" sections.
 pub fn fd4_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonPartialResult {
     let re = Regex::new(RE_FD4_SINGLETON).unwrap();
-    let subre = Regex::new(SUBRE_FD4_SINGLETON).unwrap();
 
-    if re.static_captures_len() != Some(6) {
+    if re.static_captures_len() != Some(5) {
         unreachable!("static captures length changed");
     }
 
@@ -145,7 +137,7 @@ pub fn fd4_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonPartialResult {
 
     let mut get_name: Option<unsafe extern "C" fn(*const u8) -> *const c_char> = None;
 
-    for [mov, addr_disp32, test, reflection_disp32, fn_disp32, sub] in
+    for [mov, addr_disp32, test, reflection_disp32, fn_disp32] in
         re.captures_iter(text).map(extract_captures)
     {
         if !verify_registers(mov.as_bytes(), test.as_bytes()) {
@@ -166,10 +158,6 @@ pub fn fd4_singletons<'a, T: Pe<'a>>(pe: T) -> FD4SingletonPartialResult {
         if !data_range.contains(&addr) {
             continue;
         }
-
-        if !subre.is_match(sub.as_bytes()) {
-            continue;
-        };
 
         if get_name.is_none() {
             let fn_bytes = <[u8; 4]>::try_from(fn_disp32.as_bytes()).unwrap();
@@ -291,87 +279,87 @@ unsafe impl Send for FD4SingletonPartialResult {}
 unsafe impl Sync for FD4SingletonPartialResult {}
 
 const RE_DER_SINGLETON: &str = r"(?sx-u)
-    [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
-    .{0,3}?
-    ([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
-    (?:(?:\x75.)|(?:\x0f\x85.{4}))
-    (.{26}) # load args in R9, R8, RDX and RCX in arbitrary order
-    \xe8.{4}";
+[\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
+.{0,3}?
+([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
+(?:(?:\x75.)|(?:\x0f\x85.{4}))
+# load args in R9, R8, RDX and RCX in arbitrary order
+(?:(?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4}) # R9 R8 RDX RCX
+| (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4})  # R9 R8 RCX RDX
+| (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4})  # R9 RDX R8 RCX
+| (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4})  # R9 RDX RCX R8
+| (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4})  # R9 RCX R8 RDX
+| (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4})  # R9 RCX RDX R8
+| (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4})  # R8 R9 RDX RCX
+| (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4})  # R8 R9 RCX RDX
+| (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4})  # R8 RDX R9 RCX
+| (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}))  # R8 RDX RCX R9
+| (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4})  # R8 RCX R9 RDX
+| (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4}))  # R8 RCX RDX R9
+| (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4})  # RDX R9 R8 RCX
+| (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4})  # RDX R9 RCX R8
+| (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4})  # RDX R8 R9 RCX
+| (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}))  # RDX R8 RCX R9
+| (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4})  # RDX RCX R9 R8
+| (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}))  # RDX RCX R8 R9
+| (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4})  # RCX R9 R8 RDX
+| (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4})  # RCX R9 RDX R8
+| (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4})  # RCX R8 R9 RDX
+| (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4}))  # RCX R8 RDX R9
+| (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4})  # RCX RDX R9 R8
+| (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}))) # RCX RDX R8 R9
+\xe8.{4}";
 
 const RE_FD4_SINGLETON: &str = r"(?sx-u)
-    [\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
-    .{0,3}?
-    ([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
-    (?:(?:\x75.)|(?:\x0f\x85.{4}))
-    \x48\x8d\x0d(.{4})
-    \xe8(.{4})
-    \x90??
-    (.{22}) # load args in R9, R8, RDX and RCX in arbitrary order
-    \xe8.{4}";
-
-const SUBRE_DER_SINGLETON: &str = r"(?sx-u)
-    (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4})   # R9 R8 RDX RCX
-    | (?:\x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4}) # R9 R8 RCX RDX
-    | (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # R9 RDX R8 RCX
-    | (?:\x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # R9 RDX RCX R8
-    | (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4}) # R9 RCX R8 RDX
-    | (?:\x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4}) # R9 RCX RDX R8
-    | (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x48\x8d\x0d.{4}) # R8 R9 RDX RCX
-    | (?:\x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \xba.{4}) # R8 R9 RCX RDX
-    | (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4}) # R8 RDX R9 RCX
-    | (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4})) # R8 RDX RCX R9
-    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4}) # R8 RCX R9 RDX
-    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4})) # R8 RCX RDX R9
-    | (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # RDX R9 R8 RCX
-    | (?:\xba.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # RDX R9 RCX R8
-    | (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \x48\x8d\x0d.{4}) # RDX R8 R9 RCX
-    | (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4})) # RDX R8 RCX R9
-    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4}) # RDX RCX R9 R8
-    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4})) # RDX RCX R8 R9
-    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4} \xba.{4}) # RCX R9 R8 RDX
-    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x0d(.{4}) \xba.{4} \x4c\x8d\x05.{4}) # RCX R9 RDX R8
-    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4}) \xba.{4}) # RCX R8 R9 RDX
-    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8d\x0d(.{4})) # RCX R8 RDX R9
-    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x0d(.{4}) \x4c\x8d\x05.{4}) # RCX RDX R9 R8
-    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8d\x0d(.{4})) # RCX RDX R8 R9";
-
-const SUBRE_FD4_SINGLETON: &str = r"(?sx-u)
-    (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4})   # R9 R8 RDX RCX
-    | (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4}) # R9 R8 RCX RDX
-    | (?:\x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # R9 RDX R8 RCX
-    | (?:\x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # R9 RDX RCX R8
-    | (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4}) # R9 RCX R8 RDX
-    | (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4}) # R9 RCX RDX R8
-    | (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4}) # R8 R9 RDX RCX
-    | (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4}) # R8 R9 RCX RDX
-    | (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4}) # R8 RDX R9 RCX
-    | (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8) # R8 RDX RCX R9
-    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4}) # R8 RCX R9 RDX
-    | (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8) # R8 RCX RDX R9
-    | (?:\xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4}) # RDX R9 R8 RCX
-    | (?:\xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4}) # RDX R9 RCX R8
-    | (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4}) # RDX R8 R9 RCX
-    | (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8) # RDX R8 RCX R9
-    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4}) # RDX RCX R9 R8
-    | (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8) # RDX RCX R8 R9
-    | (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4}) # RCX R9 R8 RDX
-    | (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4}) # RCX R9 RDX R8
-    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4}) # RCX R8 R9 RDX
-    | (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8) # RCX R8 RDX R9
-    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4}) # RCX RDX R9 R8
-    | (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8) # RCX RDX R8 R9";
+[\x48-\x4f]\x8b[\x05\x0d\x15\x1d\x25\x2d\x35\x3d](.{4})
+.{0,3}?
+([\x48-\x4f]\x85[\xc0\xc9\xd2\xdb\xe4\xed\xf6\xff])
+(?:(?:\x75.)|(?:\x0f\x85.{4}))
+\x48\x8d\x0d(.{4})
+\xe8(.{4})
+\x90??
+# load args in R9, R8, RDX and RCX in arbitrary order
+(?:(?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4}) # R9 R8 RDX RCX
+| (?:\x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4})  # R9 R8 RCX RDX
+| (?:\x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4})  # R9 RDX R8 RCX
+| (?:\x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4})  # R9 RDX RCX R8
+| (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4})  # R9 RCX R8 RDX
+| (?:\x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4})  # R9 RCX RDX R8
+| (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4} \x48\x8d\x0d.{4})  # R8 R9 RDX RCX
+| (?:\x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \xba.{4})  # R8 R9 RCX RDX
+| (?:\x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4})  # R8 RDX R9 RCX
+| (?:\x4c\x8d\x05.{4} \xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8)  # R8 RDX RCX R9
+| (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4})  # R8 RCX R9 RDX
+| (?:\x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8)  # R8 RCX RDX R9
+| (?:\xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \x48\x8d\x0d.{4})  # RDX R9 R8 RCX
+| (?:\xba.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4} \x4c\x8d\x05.{4})  # RDX R9 RCX R8
+| (?:\xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \x48\x8d\x0d.{4})  # RDX R8 R9 RCX
+| (?:\xba.{4} \x4c\x8d\x05.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8)  # RDX R8 RCX R9
+| (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4})  # RDX RCX R9 R8
+| (?:\xba.{4} \x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8)  # RDX RCX R8 R9
+| (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4} \xba.{4})  # RCX R9 R8 RDX
+| (?:\x48\x8d\x0d.{4} \x4c\x8b\xc8 \xba.{4} \x4c\x8d\x05.{4})  # RCX R9 RDX R8
+| (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8 \xba.{4})  # RCX R8 R9 RDX
+| (?:\x48\x8d\x0d.{4} \x4c\x8d\x05.{4} \xba.{4} \x4c\x8b\xc8)  # RCX R8 RDX R9
+| (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8b\xc8 \x4c\x8d\x05.{4})  # RCX RDX R9 R8
+| (?:\x48\x8d\x0d.{4} \xba.{4} \x4c\x8d\x05.{4} \x4c\x8b\xc8)) # RCX RDX R8 R9
+\xe8.{4}";
 
 #[cfg(test)]
 mod tests {
     use regex::bytes::Regex;
 
-    use super::{RE_DER_SINGLETON, RE_FD4_SINGLETON, SUBRE_DER_SINGLETON, SUBRE_FD4_SINGLETON};
+    use super::{RE_DER_SINGLETON, RE_FD4_SINGLETON};
 
     #[test]
-    fn regex_compiles() {
-        let _ = Regex::new(RE_DER_SINGLETON).unwrap();
-        let _ = Regex::new(RE_FD4_SINGLETON).unwrap();
-        let _ = Regex::new(SUBRE_DER_SINGLETON).unwrap();
-        let _ = Regex::new(SUBRE_FD4_SINGLETON).unwrap();
+    fn derived_regex() {
+        let re = Regex::new(RE_DER_SINGLETON).unwrap();
+        assert_eq!(re.static_captures_len(), Some(4));
+    }
+
+    #[test]
+    fn fd4_regex() {
+        let re = Regex::new(RE_FD4_SINGLETON).unwrap();
+        assert_eq!(re.static_captures_len(), Some(5));
     }
 }
