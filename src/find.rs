@@ -213,7 +213,7 @@ fn extract_captures<'h, const N: usize>(c: Captures<'h>) -> [Match<'h>; N] {
 }
 
 fn verify_registers(mov: &[u8], test: &[u8]) -> bool {
-    let mov_rexw = mov[0] & 1;
+    let mov_rexw = (mov[0] >> 2) & 1;
     let test_rexw = test[0] & 1;
 
     let mov_reg = (mov[2] & 0b00111000) >> 3;
