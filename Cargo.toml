@@ -1,20 +1,17 @@
 [package]
 name = "from-singleton"
-version = "2.0.1"
-edition = "2021"
+version = "3.0.0"
+edition = "2024"
 authors = ["Dasaav"]
 description = "FromSoftware singleton manipulation library"
 readme = "README.md"
 repository = "https://github.com/Dasaav-dsv/from-singleton"
 license = "MIT OR Apache-2.0"
 
-[dependencies.regex]
-version = "1"
-default-features = false
-features = [
-    "std",
-    "perf",
-]
+[dependencies]
+fxhash = "0.2"
+memchr = "2.7"
+smallvec = { version = "1.15", features = ["union", "const_generics"] }
 
 [dependencies.pelite]
 version = "0.10"
@@ -23,12 +20,8 @@ features = [
     "std",
 ]
 
-[dependencies.windows]
-version = "0"
-default-features = false
+[dependencies.windows-sys]
+version = "0.61"
 features = [
     "Win32_System_LibraryLoader"
 ]
-
-[features]
-regex-unicode = ["regex/unicode"]

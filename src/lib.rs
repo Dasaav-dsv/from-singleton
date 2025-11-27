@@ -3,14 +3,13 @@
 use std::{
     any,
     borrow::Cow,
-    collections::HashMap,
-    mem,
-    ptr::NonNull,
+    ptr::{self, NonNull},
     sync::{LazyLock, OnceLock},
 };
 
 use find::{FD4SingletonMap, FD4SingletonPartialResult};
-use windows::{core::PCWSTR, Win32::System::LibraryLoader::GetModuleHandleW};
+use fxhash::FxHashMap;
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
 pub mod find;
 
@@ -40,7 +39,7 @@ pub trait FromSingleton {
 ///
 /// This function is safe, but may not contain all singletons if it is called
 /// before Dantelion2 reflection is initialized by the process.
-pub fn map() -> &'static HashMap<String, NonNull<*mut u8>> {
+pub fn map() -> &'static FxHashMap<String, NonNull<*mut u8>> {
     if let Some(map) = ALL_SINGLETON_MAP.get() {
         return map;
     }
@@ -58,7 +57,7 @@ pub fn map() -> &'static HashMap<String, NonNull<*mut u8>> {
             new_map
         })
     } else {
-        &*derived
+        derived
     }
 }
 
@@ -95,20 +94,20 @@ where
     T: FromSingleton + Sized,
 {
     let name = <T as FromSingleton>::name();
-
-    // SAFETY: transmute between NonNull pointers.
-    unsafe { mem::transmute(map().get(&*name).cloned()) }
+    map().get(&*name).cloned().map(NonNull::cast)
 }
 
 static DERIVED_SINGLETON_MAP: LazyLock<FD4SingletonMap> = LazyLock::new(|| unsafe {
-    let image_base = GetModuleHandleW(PCWSTR::null()).expect("GetModuleHandleW failed");
-    let pe = pelite::pe::PeView::module(image_base.0 as _);
-    mem::transmute(find::derived_singletons(pe))
+    let image_base = GetModuleHandleW(ptr::null());
+    assert!(!image_base.is_null(), "GetModuleHandleW failed");
+    let pe = pelite::pe::PeView::module(image_base as _);
+    find::derived_singletons(pe)
 });
 
 static PARTIAL_SINGLETON_MAP: LazyLock<FD4SingletonPartialResult> = LazyLock::new(|| unsafe {
-    let image_base = GetModuleHandleW(PCWSTR::null()).expect("GetModuleHandleW failed");
-    let pe = pelite::pe::PeView::module(image_base.0 as _);
+    let image_base = GetModuleHandleW(ptr::null());
+    assert!(!image_base.is_null(), "GetModuleHandleW failed");
+    let pe = pelite::pe::PeView::module(image_base as _);
     find::fd4_singletons(pe)
 });
 
