@@ -8,6 +8,9 @@ readme = "README.md"
 repository = "https://github.com/Dasaav-dsv/from-singleton"
 license = "MIT OR Apache-2.0"
 
+[package.metadata.docs.rs]
+targets = ["x86_64-pc-windows-msvc"]
+
 [dependencies]
 fxhash = "0.2"
 memchr = "2.7"
