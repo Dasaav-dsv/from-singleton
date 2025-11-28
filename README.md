@@ -1,7 +1,7 @@
 # FROM Singleton
 FromSoftware singleton manipulation library.
 
-This library provides a trait `FromSingleton`, which allows types to be associated with `FD4Singleton` and `FD4DerivedSingleton` static instances across the FromSoftware catalogue of games. It uses binary regex patterns and lazy evaluation, with a first time initialization time of 30-40 ms.
+This library provides a trait `FromSingleton`, which allows types to be associated with `FD4Singleton` and `FD4DerivedSingleton` static instances across the FromSoftware catalogue of games. It uses binary regex patterns and lazy evaluation, with a first time initialization time of 10-15 ms.
 
 The singleton scanner idea is based on work by tremwil and vswarte.
 
