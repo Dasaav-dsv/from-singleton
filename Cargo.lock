@@ -16,7 +16,7 @@ checksum = "50eb3a329e19d78c3a3dfa4ec5a51ecb84fa3a20c06edad04be25356018218f9"
 
 [[package]]
 name = "from-singleton"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "fxhash",
  "memchr",

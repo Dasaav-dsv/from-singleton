@@ -1,6 +1,6 @@
 [package]
 name = "from-singleton"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 authors = ["Dasaav"]
 description = "FromSoftware singleton manipulation library"
@@ -24,7 +24,7 @@ features = [
 ]
 
 [dependencies.windows-sys]
-version = "0.61"
+version = ">= 0.60"
 features = [
     "Win32_System_LibraryLoader"
 ]
